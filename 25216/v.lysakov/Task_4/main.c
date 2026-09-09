@@ -10,8 +10,8 @@ typedef struct node {
 } node_t;
 
 typedef struct list {
-    node *head;
-    node *tail;
+    node_t *head;
+    node_t *tail;
 } list_t;
 
 void init_list(list_t *list) {
