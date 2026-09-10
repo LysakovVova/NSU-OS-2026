@@ -22,7 +22,6 @@ void init_list(list_t *list) {
 void add_list(list_t *list, const char *str) {
     node_t *new_node = (node_t *)malloc(sizeof(node_t));
     if (new_node == NULL) {
-        perror("malloc");
         exit(EXIT_FAILURE);
     }
 
@@ -30,7 +29,6 @@ void add_list(list_t *list, const char *str) {
 
     new_node->str = malloc(len + 1);
     if (new_node->str == NULL) {
-        perror("malloc");
         free(new_node);
         exit(EXIT_FAILURE);
     }
@@ -54,11 +52,13 @@ int main() {
 
     while (fgets(buffer, MAX_STR_LEN, stdin) != NULL) {
 
-        if (buffer[0] == '.') {
+
+        size_t len = strlen(buffer);
+
+        if (buffer[0] == '.' && (len == 1 || (len == 2 && buffer[1] == '\n'))) {
             break;
         }
 
-        size_t len = strlen(buffer);
         if (len > 0 && buffer[len - 1] == '\n') {
             buffer[len - 1] = '\0'; 
         } else {
