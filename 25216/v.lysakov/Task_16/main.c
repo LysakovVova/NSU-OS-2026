@@ -10,7 +10,7 @@ void set_keypress(void)
 {
 	struct termios new_settings;
 
-	if (tcgetattr(STDIN_FILENO,&stored_settings) != 0) {
+	if (tcgetattr(0,&stored_settings) != 0) {
 		fprintf(stderr, "Error getting terminal attributes\n");
 		exit(1);
 	}
@@ -21,7 +21,7 @@ void set_keypress(void)
 	new_settings.c_cc[VTIME] = 0;
 	new_settings.c_cc[VMIN] = 1;
 
-	if (tcsetattr(STDIN_FILENO,TCSANOW,&new_settings) != 0) {
+	if (tcsetattr(0,TCSANOW,&new_settings) != 0) {
 		fprintf(stderr, "Error setting terminal attributes\n");
 		exit(1);
 	}
@@ -30,7 +30,7 @@ void set_keypress(void)
 
 void reset_keypress(void)
 {
-	if (tcsetattr(STDIN_FILENO,TCSANOW,&stored_settings) != 0) {
+	if (tcsetattr(0,TCSANOW,&stored_settings) != 0) {
 		fprintf(stderr, "Error resetting terminal attributes\n");
 		exit(1);
 	}
