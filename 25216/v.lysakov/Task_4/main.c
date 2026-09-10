@@ -61,7 +61,14 @@ int main() {
         size_t len = strlen(buffer);
         if (len > 0 && buffer[len - 1] == '\n') {
             buffer[len - 1] = '\0'; 
-        }
+        } else {
+        int c;
+
+        while ((c = getchar()) != '\n' && c != EOF);
+
+        fprintf(stderr, "Line is too long\n");
+        continue;
+    }
         add_list(&list, buffer);
     }
     
