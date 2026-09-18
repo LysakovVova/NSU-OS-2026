@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_STR_LEN (2048)
+#define MAX_STR_LEN (32 * 1024)
+
+#define TEST_MOD 1
 
 typedef struct node {
     char* str;
@@ -22,6 +24,7 @@ void init_list(list_t *list) {
 void add_list(list_t *list, const char *str) {
     node_t *new_node = (node_t *)malloc(sizeof(node_t));
     if (new_node == NULL) {
+        perror("malloc failed");
         exit(EXIT_FAILURE);
     }
 
@@ -29,6 +32,7 @@ void add_list(list_t *list, const char *str) {
 
     new_node->str = malloc(len + 1);
     if (new_node->str == NULL) {
+        perror("malloc failed");
         free(new_node);
         exit(EXIT_FAILURE);
     }
@@ -45,30 +49,44 @@ void add_list(list_t *list, const char *str) {
     }
 }
 
-int main() {
+int main() {    
+
     char buffer[MAX_STR_LEN];
     list_t list;
     init_list(&list);
 
-    while (fgets(buffer, MAX_STR_LEN, stdin) != NULL) {
+    for (int i = 0; i < MAX_STR_LEN - 2; i++) {
+    buffer[i] = 'a';
+    }
 
+    buffer[MAX_STR_LEN - 2] = '\n';
+    buffer[MAX_STR_LEN - 1] = '\0';
 
-        size_t len = strlen(buffer);
+    while (1) {
+        if (!TEST_MOD) {
+            if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+                break;
+            }
 
-        if (buffer[0] == '.' && (len == 1 || (len == 2 && buffer[1] == '\n'))) {
-            break;
+            size_t len = strlen(buffer);
+
+            if (buffer[0] == '.' &&
+                (len == 1 || (len == 2 && buffer[1] == '\n'))) {
+                break;
+            }
+
+            if (len > 0 && buffer[len - 1] == '\n') {
+                buffer[len - 1] = '\0';
+            } else {
+                int c;
+
+                while ((c = getchar()) != '\n' && c != EOF);
+
+                fprintf(stderr, "Line is too long\n");
+                continue;
+            }
         }
 
-        if (len > 0 && buffer[len - 1] == '\n') {
-            buffer[len - 1] = '\0'; 
-        } else {
-        int c;
-
-        while ((c = getchar()) != '\n' && c != EOF);
-
-        fprintf(stderr, "Line is too long\n");
-        continue;
-    }
         add_list(&list, buffer);
     }
     
