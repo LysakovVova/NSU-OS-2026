@@ -3,6 +3,7 @@
 
 #include <termios.h>
 #include <string.h>
+#include <signal.h>
 
 static struct termios stored_settings;
 
@@ -37,8 +38,17 @@ void reset_keypress(void)
 	return;
 }
 
+void halndle_signal(int sig) {
+	reset_keypress();
+	_exit(128 + sig);
+} 
+
 int main(void)
 {
+	signal(SIGINT, halndle_signal);
+	signal(SIGTERM, halndle_signal);
+	signal(SIGHUP, halndle_signal);
+	
 	set_keypress();
 	
 	printf("Are you student? (y/n)\n");
