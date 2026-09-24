@@ -24,6 +24,7 @@ void init_list(list_t *list) {
 void add_list(list_t *list, const char *str) {
     node_t *new_node = (node_t *)malloc(sizeof(node_t));
     if (new_node == NULL) {
+        printf("malloc error\n");
         perror("malloc failed");
         exit(EXIT_FAILURE);
     }
@@ -32,6 +33,7 @@ void add_list(list_t *list, const char *str) {
 
     new_node->str = malloc(len + 1);
     if (new_node->str == NULL) {
+        printf("malloc error\n");
         perror("malloc failed");
         free(new_node);
         exit(EXIT_FAILURE);
