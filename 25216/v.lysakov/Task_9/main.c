@@ -3,8 +3,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-int main(int argc, char**argv) {
-    pid_t = pid;
+int main(int argc, char *argv[]) {
+    pid_t pid;
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <file>\n", argv[0]);
@@ -19,12 +19,13 @@ int main(int argc, char**argv) {
     }
 
     if (pid == 0) {
-        execlp("cat", "cat", argv[1], (char*)NULL);
+        execlp("cat", "cat", argv[1], (char *)NULL);
 
         perror("execlp");
         return EXIT_FAILURE;
     }
-    printf("parent waiting\n");
+
+    printf("Parent process is working\n");
 
     if (waitpid(pid, NULL, 0) == -1) {
         perror("waitpid");
