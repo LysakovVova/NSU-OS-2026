@@ -25,14 +25,14 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    printf("Parent process is working\n");
+    printf("Parent process is waiting\n");
 
     if (waitpid(pid, NULL, 0) == -1) {
         perror("waitpid");
         return EXIT_FAILURE;
     }
 
-    printf("Child process is finished\n");
+    printf("\nChild process is finished\n");
 
     return EXIT_SUCCESS;
 }
