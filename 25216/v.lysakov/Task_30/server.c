@@ -19,10 +19,9 @@ int main(void) {
     snprintf(addr.sun_path, sizeof(addr.sun_path),
              "%s", SOCKET_PATH);
 
-    unlink(SOCKET_PATH);
 
-    if (bind(server_fd, (struct sockaddr *)&addr,
-             sizeof(addr)) == -1) {
+    unlink(SOCKET_PATH);
+    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("bind");
         close(server_fd);
         return 1;
