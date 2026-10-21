@@ -19,8 +19,7 @@ int main(void) {
     snprintf(addr.sun_path, sizeof(addr.sun_path),
              "%s", SOCKET_PATH);
 
-    if (connect(fd, (struct sockaddr *)&addr,
-                sizeof(addr)) == -1) {
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("connect");
         close(fd);
         return 1;
