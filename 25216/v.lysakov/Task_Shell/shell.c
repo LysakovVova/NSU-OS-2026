@@ -11,9 +11,9 @@ char bkgrnd;
 
 int main(int argc, char *argv[]) {
     register int i;
-        char line[1024];      /*  allow large command lines  */
+    char line[1024];      /*  allow large command lines  */
     int ncmds;
-        char prompt[50];      /* shell prompt */
+    char prompt[50];      /* shell prompt */
     /* PLACE SIGNAL CODE HERE */
     sprintf(prompt,"[%s] ", argv[0]);
     while (promptline(prompt, line, sizeof(line)) > 0) {    /* until eof  */

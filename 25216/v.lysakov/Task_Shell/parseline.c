@@ -3,23 +3,27 @@
 #include <string.h>
 #include "shell.h"
 static char *blankskip(register char *);
+
 int parseline(char *line)
 {
     int nargs, ncmds;
-        register char *s;
+    register char *s;
+    
     char aflg = 0;
-        int rval;
+    int rval;
     register int i;
-        static char delim[] = " \t|&<>;\n";
+    static char delim[] = " \t|&<>;\n";
     /* initialize  */
-        bkgrnd = nargs = ncmds = rval = 0;
+    bkgrnd = nargs = ncmds = rval = 0;
     s = line;
-        infile = outfile = appfile = (char *) NULL;
+    infile = outfile = appfile = (char *) NULL;
     cmds[0].cmdargs[0] = (char *) NULL;
-        for (i = 0; i < MAXCMDS; i++)
+
+    for (i = 0; i < MAXCMDS; i++)
         cmds[i].cmdflag = 0;
+
     while (*s) {        /* until line has been parsed */
-                s = blankskip(s);       /*  skip white space */
+        s = blankskip(s);       /*  skip white space */
         if (!*s) break; /*  done with line */
         /*  handle <, >, |, &, and ;  */
         switch(*s) {
