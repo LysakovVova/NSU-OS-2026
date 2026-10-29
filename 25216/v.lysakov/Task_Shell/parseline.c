@@ -1,111 +1,209 @@
- #include <stdio.h>
-#include <ctype.h>
-#include <string.h>
 #include "shell.h"
-static char *blankskip(register char *);
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
 
-int parseline(char *line)
-{
-    int nargs, ncmds;
-    register char *s;
-    
-    char aflg = 0;
-    int rval;
-    register int i;
-    static char delim[] = " \t|&<>;\n";
-    /* initialize  */
-    bkgrnd = nargs = ncmds = rval = 0;
-    s = line;
-    infile = outfile = appfile = (char *) NULL;
-    cmds[0].cmdargs[0] = (char *) NULL;
+enum Token {
+    T_END,
+    T_PIPE,
+    T_SEMI,
+    T_AMP,
+    T_IN,
+    T_OUT,
+    T_APPEND,
+    T_WORD,
+    T_BAD
+};
 
-    for (i = 0; i < MAXCMDS; i++)
-        cmds[i].cmdflag = 0;
+static char *storage;
 
-    while (*s) {        /* until line has been parsed */
-        s = blankskip(s);       /*  skip white space */
-        if (!*s) break; /*  done with line */
-        /*  handle <, >, |, &, and ;  */
-        switch(*s) {
-            case '&':
-                ++bkgrnd;
-                *s++ = '\0';
-                break;
-            case '>':
-                if (*(s+1) == '>') {
-                    ++aflg;
-                    *s++ = '\0';
-                }
-                *s++ = '\0';
-                s = blankskip(s);
-                if (!*s) {
-                    fprintf(stderr, "syntax error\n");
-                    return(-1);
-                }
-                if (aflg)
-                    appfile = s;
-                else
-                    outfile = s;
-                s = strpbrk(s, delim);
-                if (isspace(*s))
-                    *s++ = '\0';
-                break;
-            case '<':
-                *s++ = '\0';
-                s = blankskip(s);
-                if (!*s) {
-                    fprintf(stderr, "syntax error\n");
-                    return(-1);
-                }
-                infile = s;
-                s = strpbrk(s, delim);
-                if (isspace(*s))
-                    *s++ = '\0';
-                break;
-            case '|':
-                if (nargs == 0) {
-                    fprintf(stderr, "syntax error\n");
-                    return(-1);
-                }
-                cmds[ncmds++].cmdflag |= OUTPIP;
-                cmds[ncmds].cmdflag |= INPIP;
-                *s++ = '\0';
-                nargs = 0;
-                break;
-            case ';':
-                *s++ = '\0';
-                ++ncmds;
-                nargs = 0;
-                break;
-            default:
-                /*  a command argument  */
-                if (nargs == 0) /* next command */
-                    rval = ncmds+1;
-                cmds[ncmds].cmdargs[nargs++] = s;
-                cmds[ncmds].cmdargs[nargs] = (char *) NULL;
-                s = strpbrk(s, delim);
-                if (isspace(*s))
-                    *s++ = '\0';
-                break;
-        }  /*  close switch  */
-    }  /* close while  */
-    /*  error check  */
-    /*
-         *  The only errors that will be checked for are
-     *  no command on the right side of a pipe
-         *  no command to the left of a pipe is checked above
-     */
-        if (cmds[ncmds-1].cmdflag & OUTPIP) {
-        if (nargs == 0) {
-            fprintf(stderr, "syntax error\n");
-            return(-1);
-        }
+static enum Token next_token(const char **input, char **output, char **word) {
+    const char *s = *input;
+
+    while (isspace((unsigned char)*s))
+        ++s;
+
+    switch (*s) {
+    case '\0':
+        *input = s;
+        return T_END;
+
+    case '|':
+        *input = s + 1;
+        return T_PIPE;
+
+    case ';':
+        *input = s + 1;
+        return T_SEMI;
+
+    case '&':
+        *input = s + 1;
+        return T_AMP;
+
+    case '<':
+        *input = s + 1;
+        return T_IN;
+
+    case '>':
+        *input = s + (s[1] == '>' ? 2 : 1);
+        return s[1] == '>' ? T_APPEND : T_OUT;
     }
-    return(rval);
+
+    char *start = *output;
+    char *dst = start;
+    int quote = 0;
+
+    while (*s) {
+        char c = *s;
+
+        if (!quote && (isspace((unsigned char)c) || strchr("|&<>;", c)))
+            break;
+
+        if (c == '\'' && quote != '"') {
+            quote = quote == '\'' ? 0 : '\'';
+            ++s;
+            continue;
+        }
+
+        if (c == '"' && quote != '\'') {
+            quote = quote == '"' ? 0 : '"';
+            ++s;
+            continue;
+        }
+
+        if (c == '\\' && quote != '\'') {
+            ++s;
+
+            if (!*s || *s == '\n') {
+                fprintf(stderr, "syntax error: incomplete escape\n");
+                return T_BAD;
+            }
+
+            if (quote == '"' && *s != '"' && *s != '\\' && *s != '$' &&
+                *s != '`')
+                *dst++ = '\\';
+
+            *dst++ = *s++;
+            continue;
+        }
+
+        *dst++ = *s++;
+    }
+
+    if (quote) {
+        fprintf(stderr, "syntax error: unclosed quote\n");
+        return T_BAD;
+    }
+
+    *dst++ = '\0';
+
+    *word = start;
+    *output = dst;
+    *input = s;
+
+    return T_WORD;
 }
-static char *
-blankskip(register char *s)
-{
-    while (isspace(*s) && *s) ++s;
-        return(s);
+
+int parseline(char *line) {
+    free(storage);
+    storage = malloc(strlen(line) + 1);
+    if (!storage) {
+        perror("malloc");
+        return -1;
+    }
+
+    const char *input = line;
+    char *output = storage;
+    int current = 0, nargs = 0;
+    enum Token pending = T_END;
+    enum Token last = T_END;
+    int background_seen = 0;
+    char *word = NULL;
+
+    bkgrnd = 0;
+    infile = outfile = appfile = NULL;
+    for (int i = 0; i < MAXCMDS; ++i) {
+        cmds[i].cmdflag = 0;
+        cmds[i].cmdargs[0] = NULL;
+    }
+
+    for (;;) {
+        enum Token t = next_token(&input, &output, &word);
+        if (t == T_BAD)
+            return -1;
+        if (background_seen && t != T_END)
+            goto syntax_error;
+        if (t == T_END) {
+            if (pending != T_END)
+                goto syntax_error;
+            if (nargs == 0) {
+                if (last == T_END)
+                    return 0;
+                if (last == T_SEMI)
+                    return current;
+                goto syntax_error;
+            }
+            return current + 1;
+        }
+
+        if (pending != T_END) {
+            if (t != T_WORD)
+                goto syntax_error;
+            if (pending == T_IN)
+                infile = word;
+            else if (pending == T_OUT)
+                outfile = word;
+            else
+                appfile = word;
+            pending = T_END;
+            last = t;
+            continue;
+        }
+
+        switch (t) {
+        case T_WORD:
+            if (nargs >= MAXARGS - 1) {
+                fprintf(stderr, "too many arguments\n");
+                return -1;
+            }
+            cmds[current].cmdargs[nargs++] = word;
+            cmds[current].cmdargs[nargs] = NULL;
+            break;
+        case T_PIPE:
+        case T_SEMI:
+            if (nargs == 0 || current + 1 >= MAXCMDS)
+                goto syntax_error;
+            if (t == T_PIPE)
+                cmds[current].cmdflag |= OUTPIP;
+            ++current;
+            if (t == T_PIPE)
+                cmds[current].cmdflag |= INPIP;
+            nargs = 0;
+            break;
+        case T_AMP:
+            if (nargs == 0)
+                goto syntax_error;
+            bkgrnd = 1;
+            background_seen = 1;
+            break;
+        case T_IN:
+            if (infile)
+                goto syntax_error;
+            pending = t;
+            break;
+        case T_OUT:
+        case T_APPEND:
+            if (outfile || appfile)
+                goto syntax_error;
+            pending = t;
+            break;
+        default:
+            goto syntax_error;
+        }
+        last = t;
+    }
+
+syntax_error:
+    fprintf(stderr, "syntax error\n");
+    return -1;
 }
