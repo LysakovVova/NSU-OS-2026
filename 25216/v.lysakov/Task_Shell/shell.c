@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "shell.h"
+#include <stdlib.h>
 
 char *infile, *outfile, *appfile;
 struct command cmds[MAXCMDS];
@@ -119,7 +120,6 @@ void check_zombie_processes(void) {
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED)) > 0) {
 
         Job *job = NULL;
-        int process_index = -1;
 
         // Ищем задание и процесс внутри него
         for (int i = 0; i < MAXCMDS && !job; i++) {
@@ -130,7 +130,6 @@ void check_zombie_processes(void) {
 
                 if (all_jobs[i].pids[j] == pid) {
                     job = &all_jobs[i];
-                    process_index = j;
                     break;
                 }
             }
@@ -139,14 +138,7 @@ void check_zombie_processes(void) {
         if (job == NULL)
             continue;
 
-        // Обрабатываем изменение состояния процесса
-        if (WIFEXITED(status) || WIFSIGNALED(status)) {
-            job->state[process_index] = DONE;
-        } else if (WIFSTOPPED(status)) {
-            job->state[process_index] = STOPPED;
-        } else if (WIFCONTINUED(status)) {
-            job->state[process_index] = RUNNING;
-        }
+        update_process_state(job, pid, status);
 
         // Проверяем, завершилось ли всё задание
         if (is_job_done(job)) {
@@ -213,31 +205,32 @@ void mark_job_running(Job *job) {
     }
 }
 
-void builtin_bg(Job *job) {
+int builtin_bg(Job *job) {
     if (job == NULL) {
         fprintf(stderr, "bg: job not found\n");
-        return;
+        return 1;
     }
 
     if (!is_job_stopped(job)) {
         fprintf(stderr, "bg: job is not stopped\n");
-        return;
+        return 1;
     }
 
     if (kill(-job->pgid, SIGCONT) < 0) {
         perror("SIGCONT");
-        return;
+        return 1;
     }
 
     mark_job_running(job);
 
     printf("[%d] Running %s\n", job->id, job->name);
+    return 0;
 }
 
-void builtin_fg(Job *job) {
+int builtin_fg(Job *job) {
     if (job == NULL) {
         fprintf(stderr, "fg: job not found\n");
-        return;
+        return 1;
     }
 
     bool stopped = is_job_stopped(job);
@@ -246,7 +239,7 @@ void builtin_fg(Job *job) {
     if (shell_interactive) {
         if (tcsetpgrp(STDIN_FILENO, job->pgid) < 0) {
             perror("tcsetpgrp fg");
-            return;
+            return 1;
         }
 
         // Восстанавливаем настройки терминала задания
@@ -266,21 +259,21 @@ void builtin_fg(Job *job) {
 
             jobs_foreground = NULL;
             return_terminal();
-            return;
+            return 1;
         }
 
         mark_job_running(job);
     }
 
     // Ждём завершения или остановки задания
-    wait_foreground(job);
+    return wait_foreground(job);
 }
 
-bool special_command(int ncmds) {
-    if (ncmds != 1 || cmds[0].cmdargs[0] == NULL)
-        return false;
+static bool run_builtin(int index, int *status) {
+    char *name = cmds[index].cmdargs[0];
 
-    char *name = cmds[0].cmdargs[0];
+    if (name == NULL)
+        return false;
 
     if (strcmp(name, "exit") == 0) {
         exit(0);
@@ -293,25 +286,25 @@ bool special_command(int ncmds) {
             if (!job->used)
                 continue;
 
-            printf("[%d] PGID=%ld %s\n", job->id, (long)job->pgid, job->name);
+            printf("[%d] PGID=%ld %s\n",
+                   job->id, (long)job->pgid, job->name);
         }
 
+        *status = 0;
         return true;
     }
 
     if (strcmp(name, "fg") == 0) {
-        Job *job = find_job(cmds[0].cmdargs[1]);
+        Job *job = find_job(cmds[index].cmdargs[1]);
 
-        builtin_fg(job);
-
+        *status = builtin_fg(job);
         return true;
     }
 
     if (strcmp(name, "bg") == 0) {
-        Job *job = find_job(cmds[0].cmdargs[1]);
+        Job *job = find_job(cmds[index].cmdargs[1]);
 
-        builtin_bg(job);
-
+        *status = builtin_bg(job);
         return true;
     }
 
@@ -325,11 +318,19 @@ void update_process_state(Job *job, pid_t pid, int status) {
 
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
             job->state[i] = DONE;
-        }
-        else if (WIFSTOPPED(status)) {
+
+            if (i == job->nprocesses - 1) {
+                if (WIFEXITED(status)) {
+                    job->exit_code = WEXITSTATUS(status);
+                } else {
+                    job->exit_code = 128 + WTERMSIG(status);
+                }
+
+                job->has_exit_code = true;
+            }
+        } else if (WIFSTOPPED(status)) {
             job->state[i] = STOPPED;
-        }
-        else if (WIFCONTINUED(status)) {
+        } else if (WIFCONTINUED(status)) {
             job->state[i] = RUNNING;
         }
 
@@ -346,9 +347,10 @@ int add_group(pid_t pid, pid_t pgid) {
     return 0;
 }
 
-void wait_foreground(Job *job) {
+int wait_foreground(Job *job) {
     int status;
     bool stopped_with_tstp = false;
+    int stop_signal = 0;
 
     while (!is_job_done(job) && !is_job_stopped(job)) {
         pid_t pid = waitpid(-job->pgid, &status, WUNTRACED | WCONTINUED);
@@ -367,8 +369,11 @@ void wait_foreground(Job *job) {
             break;
         }
 
-        if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTSTP) {
-            stopped_with_tstp = true;
+        if (WIFSTOPPED(status)) {
+            stop_signal = WSTOPSIG(status);
+
+            if (stop_signal == SIGTSTP)
+                stopped_with_tstp = true;
         }
 
         update_process_state(job, pid, status);
@@ -382,13 +387,13 @@ void wait_foreground(Job *job) {
 
     // Возвращаем терминал shell
     return_terminal();
-
     jobs_foreground = NULL;
 
     // Все процессы завершились
     if (is_job_done(job)) {
         job->used = 0;
-        return;
+
+        return job->has_exit_code ? job->exit_code : 1;
     }
 
     // Все оставшиеся процессы остановлены
@@ -407,10 +412,15 @@ void wait_foreground(Job *job) {
         } else {
             printf("[%d] Stopped %s\n", job->id, job->name);
         }
+
+        return 128 + (stopped_with_tstp
+                          ? SIGTSTP
+                          : (stop_signal ? stop_signal : SIGSTOP));
     }
+    return 1;
 }
 
-void launch_pipeline(int first, int last, int ncmds) {
+int launch_pipeline(int first, int last, int ncmds) {
     int ind = -1;
 
     // Ищем свободное место в таблице заданий
@@ -423,17 +433,14 @@ void launch_pipeline(int first, int last, int ncmds) {
 
     if (ind == -1) {
         fprintf(stderr, "Maximum number of jobs reached\n");
-        return;
+        return 1;
     }
 
     // Создаём новое задание
     Job *job = &all_jobs[ind];
-
     memset(job, 0, sizeof(*job));
-
     job->used = 1;
     job->id = ind + 1;
-
     snprintf(job->name, sizeof(job->name), "%s", cmds[first].cmdargs[0]);
 
     // Канал синхронизации запуска процессов
@@ -442,12 +449,11 @@ void launch_pipeline(int first, int last, int ncmds) {
     if (pipe(start_pipe) < 0) {
         perror("pipe");
         job->used = 0;
-        return;
+        return 1;
     }
 
     int previous_read = -1;
     bool failed = false;
-
     fflush(NULL);
 
     // Запускаем все команды конвейера
@@ -625,7 +631,7 @@ void launch_pipeline(int first, int last, int ncmds) {
         return_terminal();
 
         job->used = 0;
-        return;
+        return 1;
     }
 
     // Разрешаем дочерним процессам продолжить работу
@@ -634,24 +640,54 @@ void launch_pipeline(int first, int last, int ncmds) {
     if (bkgrnd) {
         printf("[%d] PID=%ld\n", job->id, (long)job->pgid);
         fflush(stdout);
-    } else {
-        jobs_foreground = job;
-        wait_foreground(job);
+
+        return 0;
     }
+
+    jobs_foreground = job;
+
+    return wait_foreground(job);
 }
 
-void execute_command(int ncmds) {
+int execute_command(int ncmds) {
+    int status = 0;
+
+    enum chain_operator previous = CHAIN_SEQ;
+
     for (int first = 0; first < ncmds;) {
         int last = first;
 
-        while (last + 1 < ncmds && (cmds[last].cmdflag & OUTPIP)) {
+        // Определяем границы конвейера
+        while (last + 1 < ncmds &&
+               (cmds[last].cmdflag & OUTPIP)) {
             last++;
         }
 
-        launch_pipeline(first, last, ncmds);
+        bool should_run =
+            previous == CHAIN_NONE ||
+            previous == CHAIN_SEQ ||
+            (previous == CHAIN_AND && status == 0) ||
+            (previous == CHAIN_OR && status != 0);
+
+        if (should_run) {
+            int builtin_status = 0;
+
+            // Встроенные команды выполняются самим shell
+            if (first == last &&
+                run_builtin(first, &builtin_status)) {
+                status = builtin_status;
+            } else {
+                status = launch_pipeline(first, last, ncmds);
+            }
+        }
+
+        // Запоминаем оператор после текущего конвейера
+        previous = chain_after[last];
 
         first = last + 1;
     }
+
+    return status;
 }
 
 int main(int argc, char *argv[]) {
@@ -677,9 +713,6 @@ int main(int argc, char *argv[]) {
         int ncmds = parseline(line);
 
         if (ncmds <= 0)
-            continue;
-
-        if (special_command(ncmds))
             continue;
 
         execute_command(ncmds);
