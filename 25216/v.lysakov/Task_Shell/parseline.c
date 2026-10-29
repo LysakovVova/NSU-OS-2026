@@ -12,10 +12,13 @@ enum Token {
     T_OUT,
     T_APPEND,
     T_WORD,
-    T_BAD
+    T_BAD,
+    T_AND_IF,
+    T_OR_IF
 };
 
 static char *storage;
+enum chain_operator chain_after[MAXCMDS];
 
 static enum Token next_token(const char **input, char **output, char **word) {
     const char *s = *input;
@@ -29,16 +32,26 @@ static enum Token next_token(const char **input, char **output, char **word) {
         return T_END;
 
     case '|':
+        if (s[1] == '|') {
+            *input = s + 2;
+            return T_OR_IF;
+        }
+
         *input = s + 1;
         return T_PIPE;
+
+    case '&':
+        if (s[1] == '&') {
+            *input = s + 2;
+            return T_AND_IF;
+        }
+
+        *input = s + 1;
+        return T_AMP;
 
     case ';':
         *input = s + 1;
         return T_SEMI;
-
-    case '&':
-        *input = s + 1;
-        return T_AMP;
 
     case '<':
         *input = s + 1;
@@ -118,6 +131,7 @@ int parseline(char *line) {
     enum Token pending = T_END;
     enum Token last = T_END;
     int background_seen = 0;
+    int has_conditions = 0;
     char *word = NULL;
 
     bkgrnd = 0;
@@ -125,6 +139,7 @@ int parseline(char *line) {
     for (int i = 0; i < MAXCMDS; ++i) {
         cmds[i].cmdflag = 0;
         cmds[i].cmdargs[0] = NULL;
+        chain_after[i] = CHAIN_NONE;
     }
 
     for (;;) {
@@ -170,19 +185,40 @@ int parseline(char *line) {
             cmds[current].cmdargs[nargs] = NULL;
             break;
         case T_PIPE:
-        case T_SEMI:
             if (nargs == 0 || current + 1 >= MAXCMDS)
                 goto syntax_error;
-            if (t == T_PIPE)
-                cmds[current].cmdflag |= OUTPIP;
+
+            cmds[current].cmdflag |= OUTPIP;
+
             ++current;
-            if (t == T_PIPE)
-                cmds[current].cmdflag |= INPIP;
+
+            cmds[current].cmdflag |= INPIP;
+            nargs = 0;
+            break;
+
+        case T_SEMI:
+        case T_AND_IF:
+        case T_OR_IF:
+            if (nargs == 0 || current + 1 >= MAXCMDS)
+                goto syntax_error;
+
+            if (t == T_SEMI) {
+                chain_after[current] = CHAIN_SEQ;
+            } else if (t == T_AND_IF) {
+                chain_after[current] = CHAIN_AND;
+                has_conditions = 1;
+            } else {
+                chain_after[current] = CHAIN_OR;
+                has_conditions = 1;
+            }
+
+            ++current;
             nargs = 0;
             break;
         case T_AMP:
-            if (nargs == 0)
+            if (nargs == 0 || has_conditions)
                 goto syntax_error;
+
             bkgrnd = 1;
             background_seen = 1;
             break;

@@ -13,6 +13,10 @@
 #include <termios.h>
 #include <unistd.h>
 
+enum chain_operator { CHAIN_NONE, CHAIN_SEQ, CHAIN_AND, CHAIN_OR };
+
+extern enum chain_operator chain_after[MAXCMDS];
+
 struct command {
     char *cmdargs[MAXARGS];
     char cmdflag;
@@ -41,6 +45,9 @@ typedef struct {
     int saved_modes;
 
     char name[128];
+
+    int exit_code;
+    bool has_exit_code;
 } Job;
 
 int parseline(char *);
@@ -54,12 +61,11 @@ void check_zombie_processes(void);
 Job *find_job(const char *arg);
 bool is_job_stopped(Job *job);
 void mark_job_running(Job *job);
-void builtin_bg(Job *job);
-void builtin_fg(Job *job);
-bool special_command(int ncmds);
+int builtin_bg(Job *job);
+int builtin_fg(Job *job);
 int add_group(pid_t pid, pid_t pgid);
-void wait_foreground(Job *job);
-void execute_command(int ncmds);
+int wait_foreground(Job *job);
+int execute_command(int ncmds);
 int redirect_file(const char *path, int flags, int target);
-void launch_pipeline(int first, int last, int ncmds);
+int launch_pipeline(int first, int last, int ncmds);
 void update_process_state(Job *job, pid_t pid, int status);
