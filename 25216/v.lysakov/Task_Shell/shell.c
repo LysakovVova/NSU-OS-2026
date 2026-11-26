@@ -286,8 +286,7 @@ static bool run_builtin(int index, int *status) {
             if (!job->used)
                 continue;
 
-            printf("[%d] PGID=%ld %s\n",
-                   job->id, (long)job->pgid, job->name);
+            printf("[%d] PGID=%ld %s\n", job->id, (long)job->pgid, job->name);
         }
 
         *status = 0;
@@ -658,23 +657,19 @@ int execute_command(int ncmds) {
         int last = first;
 
         // Определяем границы конвейера
-        while (last + 1 < ncmds &&
-               (cmds[last].cmdflag & OUTPIP)) {
+        while (last + 1 < ncmds && (cmds[last].cmdflag & OUTPIP)) {
             last++;
         }
 
-        bool should_run =
-            previous == CHAIN_NONE ||
-            previous == CHAIN_SEQ ||
-            (previous == CHAIN_AND && status == 0) ||
-            (previous == CHAIN_OR && status != 0);
+        bool should_run = previous == CHAIN_NONE || previous == CHAIN_SEQ ||
+                          (previous == CHAIN_AND && status == 0) ||
+                          (previous == CHAIN_OR && status != 0);
 
         if (should_run) {
             int builtin_status = 0;
 
             // Встроенные команды выполняются самим shell
-            if (first == last &&
-                run_builtin(first, &builtin_status)) {
+            if (first == last && run_builtin(first, &builtin_status)) {
                 status = builtin_status;
             } else {
                 status = launch_pipeline(first, last, ncmds);
